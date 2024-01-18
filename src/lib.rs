@@ -1,4 +1,5 @@
 extern crate x11rb;
+extern crate nix;
 
 pub mod error;
 mod run;
@@ -17,6 +18,7 @@ use x11rb::errors::ConnectError;
 use x11rb::protocol::{Event, xfixes};
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, CreateWindowAux, EventMask, Property, WindowClass};
 use error::Error;
+use run::{create_drop_pipe, PipeWrite};
 
 pub const INCR_CHUNK_SIZE: usize = 4000;
 const POLL_DURATION: u64 = 50;
@@ -72,7 +74,7 @@ pub struct Clipboard {
     pub getter: Context,
     pub setter: Arc<Context>,
     setmap: SetMap,
-    send: Sender<Atom>
+    send: SendPipeDrop
 }
 
 pub struct Context {
@@ -128,6 +130,11 @@ impl Context {
     }
 }
 
+struct SendPipeDrop {
+    sender: Sender<Atom>,
+    _drop: PipeWrite,
+}
+
 
 impl Clipboard {
     /// Create Clipboard.
@@ -139,10 +146,14 @@ impl Clipboard {
         let setmap2 = Arc::clone(&setmap);
 
         let (sender, receiver) = channel();
+        let (pipe_read, pipe_write) = create_drop_pipe()?;
         let max_length = setter.connection.maximum_request_bytes();
-        thread::spawn(move || run::run(&setter2, &setmap2, max_length, &receiver));
+        thread::spawn(move || run::run(&setter2, &setmap2, max_length, &receiver, pipe_read));
 
-        Ok(Clipboard { getter, setter, setmap, send: sender })
+        Ok(Clipboard { getter, setter, setmap, send: SendPipeDrop {
+            sender,
+            _drop: pipe_write,
+        } })
     }
 
     fn process_event<T>(&self, buff: &mut Vec<u8>, selection: Atom, target: Atom, property: Atom, timeout: T, use_xfixes: bool, sequence_number: u64)
@@ -352,7 +363,7 @@ impl Clipboard {
     pub fn store<T: Into<Vec<u8>>>(&self, selection: Atom, target: Atom, value: T)
         -> Result<(), Error>
     {
-        self.send.send(selection)?;
+        self.send.sender.send(selection)?;
         self.setmap
             .write()
             .map_err(|_| Error::Lock)?
