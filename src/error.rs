@@ -1,7 +1,7 @@
+use nix::errno::Errno;
+use std::error::Error as StdError;
 use std::fmt;
 use std::sync::mpsc::SendError;
-use std::error::Error as StdError;
-use nix::errno::Errno;
 use x11rb::errors::{ConnectError, ConnectionError, ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::Atom;
 
@@ -34,7 +34,7 @@ impl fmt::Display for Error {
             Timeout => write!(f, "Selection timed out"),
             Owner => write!(f, "Failed to set new owner of XCB selection"),
             UnexpectedType(target) => write!(f, "Unexpected Reply type: {:?}", target),
-            PipeCreate(errno) => write!(f, "Failed to create pipe, errno={errno}")
+            PipeCreate(errno) => write!(f, "Failed to create pipe, errno={errno}"),
         }
     }
 }
@@ -48,7 +48,7 @@ impl StdError for Error {
             XcbReply(e) => Some(e),
             XcbReplyOrId(e) => Some(e),
             XcbConnect(e) => Some(e),
-            Lock | Timeout | Owner | UnexpectedType(_) | PipeCreate(_)  => None,
+            Lock | Timeout | Owner | UnexpectedType(_) | PipeCreate(_) => None,
         }
     }
 }
@@ -60,7 +60,7 @@ macro_rules! define_from {
                 Error::$item(err)
             }
         }
-    }
+    };
 }
 
 define_from!(Set from SendError<Atom>);
